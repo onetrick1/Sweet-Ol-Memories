@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db/drizzle";
 import { tasks } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { Client } from "@upstash/qstash";
 
 const qstashClient = new Client({
@@ -43,5 +44,20 @@ export async function createTask(data: {
 	} catch (error) {
 		console.error("Error creating task:", error);
 		throw new Error("Failed to create task");
+	}
+}
+
+export async function getTasks(user_id: number) {
+	try {
+		const allTasks = await db
+			.select()
+			.from(tasks)
+			.where(eq(tasks.user_id, user_id))
+			.orderBy(tasks.event_time);
+
+		return allTasks;
+	} catch (error) {
+		console.error("Error fetching tasks:", error);
+		throw new Error("Failed to fetch tasks");
 	}
 }

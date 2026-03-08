@@ -22,6 +22,8 @@ import { toast } from "sonner";
 import { getDate } from "./actions/ai";
 import { createTask } from "./actions/tasks";
 import { AudioWave } from "./components/AudioWave";
+import Link from "next/link";
+import { VoiceSettings } from "@/components/VoiceSettings";
 
 const FeatureButton = ({
 	icon: Icon,
@@ -370,23 +372,28 @@ export default function LandingPage() {
 					{/* Rest of the content */}
 					<div className="relative flex flex-col items-center w-full">
 						{/* Center voice button */}
-						<div className="mb-28">
+						<div className="mb-12">
 							<VoiceButton isConnected={isConnected} />
 						</div>
 
+						{/* Voice Cloning and Selection */}
+						<VoiceSettings />
+
 						{/* Feature buttons section */}
 
-						<div className="grid grid-cols-1 sm:grid-cols-3 gap-8 w-full max-w-4xl mx-auto mt-10">
+						<div className="grid grid-cols-1 sm:grid-cols-3 gap-8 w-full max-w-4xl mx-auto mt-16">
 							<FeatureButton
 								icon={FaBell}
 								label="Set Reminders"
 								tooltip="Set medication and appointment reminders"
 							/>
-							<FeatureButton
-								icon={FaCalendarAlt}
-								label="Set Appointments"
-								tooltip="Schedule and manage appointments"
-							/>
+							<Link href="/calendar" className="w-full">
+								<FeatureButton
+									icon={FaCalendarAlt}
+									label="View Calendar"
+									tooltip="Schedule and manage appointments"
+								/>
+							</Link>
 							<FeatureButton
 								icon={FaComments}
 								label="Companionship"
