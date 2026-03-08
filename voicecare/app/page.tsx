@@ -9,7 +9,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useConversation } from "@11labs/react";
 import { motion } from "framer-motion";
 import posthog from "posthog-js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import { IconType } from "react-icons";
 import {
 	FaBell,
@@ -125,27 +125,31 @@ export default function LandingPage() {
 	const [selectedVoiceId, setSelectedVoiceId] = useState<string>("");
 	const [selectedVoiceName, setSelectedVoiceName] = useState<string>("Samantha");
 	const [date, setDate] = useState<Date | undefined>(new Date());
-	const [tasks, setTasks] = useState<any[]>([]);
+	const [allTasks, setAllTasks] = useState<any[]>([]);
 	const [isLoadingTasks, setIsLoadingTasks] = useState(false);
 
 	const notifications = useNotifications(1);
 
-	const fetchTasks = useCallback(async () => {
-		if (!date) return;
+	const fetchAllTasks = useCallback(async () => {
 		setIsLoadingTasks(true);
 		try {
 			const data = await getTasks(1);
-			setTasks(data.filter((t: any) => isSameDay(new Date(t.event_time), date)));
+			setAllTasks(data);
 		} catch (error) {
 			console.error("Failed to fetch tasks:", error);
 		} finally {
 			setIsLoadingTasks(false);
 		}
-	}, [date]);
+	}, []);
 
 	useEffect(() => {
-		fetchTasks();
-	}, [fetchTasks]);
+		fetchAllTasks();
+	}, [fetchAllTasks]);
+
+	const filteredTasks = useMemo(() => {
+		if (!date) return [];
+		return allTasks.filter((t: any) => isSameDay(new Date(t.event_time), date));
+	}, [allTasks, date]);
 
 	const conversation = useConversation({
 		onConnect: () => {
@@ -209,7 +213,7 @@ export default function LandingPage() {
 						});
 
 						if (result.success) {
-							fetchTasks();
+							fetchAllTasks();
 							toast.success(`Reminder set: ${task} for ${datetime}`);
 							return { success: true, message: `Successfully set reminder for ${task} at ${datetime}` };
 						}
@@ -228,7 +232,7 @@ export default function LandingPage() {
 						});
 
 						if (result.success) {
-							fetchTasks();
+							fetchAllTasks();
 							toast.success(`Appointment scheduled: ${title} for ${datetime}`);
 							return { success: true, message: `I've scheduled your ${title} for ${datetime}` };
 						}
@@ -243,7 +247,7 @@ export default function LandingPage() {
 		} catch (error) {
 			toast.error("Failed to start conversation: " + (error as Error).message);
 		}
-	}, [conversation, selectedVoiceId, selectedVoiceName, fetchTasks]);
+	}, [conversation, selectedVoiceId, selectedVoiceName, fetchAllTasks]);
 
 	const stopConversation = useCallback(async () => {
 		try {
@@ -293,9 +297,9 @@ export default function LandingPage() {
 						className="text-center mb-16"
 					>
 						<h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6 tracking-tight">
-							<span className="text-blue-700">VoiceCare</span>{" "}
+							<span className="text-blue-700">Sweet Ol&apos;</span>{" "}
 							<span className="font-extralight text-gray-600">
-								AI Companion
+								Memories
 							</span>
 						</h1>
 						<p className="text-lg text-gray-800 mb-2">
@@ -340,8 +344,8 @@ export default function LandingPage() {
 
 										{isLoadingTasks ? (
 											<p className="text-gray-400 italic text-sm">Loading tasks...</p>
-										) : tasks.length > 0 ? (
-											tasks.map((task) => (
+										) : filteredTasks.length > 0 ? (
+											filteredTasks.map((task) => (
 												<div key={task.task_id} className="p-4 rounded-2xl bg-blue-50/50 border border-blue-100 flex items-center gap-4">
 													<div className={`p-2 rounded-xl ${task.type === 'appointment' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
 														{task.type === 'appointment' ? <FaHospital className="w-4 h-4" /> : <FaBell className="w-4 h-4" />}

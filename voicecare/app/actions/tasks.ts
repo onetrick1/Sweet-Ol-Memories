@@ -57,7 +57,8 @@ export async function getTasks(user_id: number) {
 
 		return allTasks;
 	} catch (error) {
-		console.error("Error fetching tasks:", error);
-		throw new Error("Failed to fetch tasks");
+		console.error("Detailed error fetching tasks:", error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		throw new Error(`Failed to fetch tasks: ${errorMessage}`);
 	}
 }
