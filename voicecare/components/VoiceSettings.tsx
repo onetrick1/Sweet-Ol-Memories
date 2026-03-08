@@ -7,11 +7,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { toast } from "sonner";
 import { FaMicrophone, FaStop, FaPlus, FaCheckCircle, FaUserFriends, FaChevronDown } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-export function VoiceSettings() {
+interface VoiceSettingsProps {
+    onVoiceChange: (voiceId: string, voiceName: string) => void;
+}
+
+export function VoiceSettings({ onVoiceChange }: VoiceSettingsProps) {
     const [voices, setVoices] = useState<any[]>([]);
-    const [selectedVoice, setSelectedVoice] = useState<string>("");
-    const [isAddingVoice, setIsAddingVoice] = useState(false);
+    const [selectedVoiceId, setSelectedVoiceId] = useState<string>("");
+    const [newVoiceName, setNewVoiceName] = useState<string>("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isOpen, setIsOpen] = useState(false);
 
@@ -20,11 +26,13 @@ export function VoiceSettings() {
             const data = await listVoices();
             setVoices(data);
             // Set initial selected voice from localStorage or first one
-            const saved = localStorage.getItem("selected_voice_id");
-            if (saved) setSelectedVoice(saved);
-            else if (data.length > 0) {
-                setSelectedVoice(data[0].voice_id);
-                localStorage.setItem("selected_voice_id", data[0].voice_id);
+            const savedId = localStorage.getItem("selected_voice_id");
+
+            let activeVoice = data.find((v: any) => v.voice_id === savedId) || data[0];
+
+            if (activeVoice) {
+                setSelectedVoiceId(activeVoice.voice_id);
+                onVoiceChange(activeVoice.voice_id, activeVoice.name);
             }
         } catch (error) {
             console.error("Failed to fetch voices:", error);
@@ -36,18 +44,24 @@ export function VoiceSettings() {
     }, []);
 
     const handleRecordingComplete = async (blob: Blob) => {
+        if (!newVoiceName.trim()) {
+            toast.error("Please enter a name for your voice");
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             const formData = new FormData();
             // ElevenLabs requires at least one file
             const file = new File([blob], "voice_sample.webm", { type: "audio/webm" });
             formData.append("files", file);
-            formData.append("name", `My Voice (${new Date().toLocaleDateString()})`);
+            formData.append("name", newVoiceName.trim());
             formData.append("description", "Cloned voice sample");
 
             await addVoice(formData);
             toast.success("Voice cloned successfully!");
             setIsOpen(false);
+            setNewVoiceName("");
             fetchVoices(); // Refresh list
         } catch (error) {
             toast.error(error instanceof Error ? error.message : "Failed to clone voice");
@@ -62,9 +76,13 @@ export function VoiceSettings() {
     });
 
     const handleVoiceSelect = (voiceId: string) => {
-        setSelectedVoice(voiceId);
-        localStorage.setItem("selected_voice_id", voiceId);
-        toast.success("Voice updated!");
+        const voice = voices.find(v => v.voice_id === voiceId);
+        if (voice) {
+            setSelectedVoiceId(voiceId);
+            localStorage.setItem("selected_voice_id", voiceId);
+            onVoiceChange(voiceId, voice.name);
+            toast.success(`Switched to ${voice.name}`);
+        }
     };
 
     return (
@@ -91,9 +109,22 @@ export function VoiceSettings() {
                             Record Your Voice
                         </DialogTitle>
                     </DialogHeader>
-                    <div className="flex flex-col items-center justify-center py-10 space-y-8">
-                        <p className="text-center text-gray-600 px-4">
-                            Please speak naturally for about 15-30 seconds. Tell us about your favorite memory or just say hello!
+                    <div className="flex flex-col items-center justify-center py-6 space-y-6">
+                        <div className="w-full space-y-2">
+                            <Label htmlFor="voice-name" className="text-sm font-bold text-gray-700 ml-1">Voice Name</Label>
+                            <Input
+                                id="voice-name"
+                                placeholder='Example: "Peter" or "Isabella"'
+                                value={newVoiceName}
+                                onChange={(e) => setNewVoiceName(e.target.value)}
+                                className="rounded-2xl border-gray-100 focus:border-blue-300 h-12"
+                            />
+                        </div>
+
+                        <p className="text-center text-sm text-gray-500 px-4">
+                            {isRecording
+                                ? "Speak naturally for 15-30 seconds..."
+                                : 'Enter a name above, then click record. Speak naturally for about 15-30 seconds.'}
                         </p>
 
                         <AnimatePresence mode="wait">
@@ -113,9 +144,10 @@ export function VoiceSettings() {
                                     whileHover={{ scale: 1.05 }}
                                     whileTap={{ scale: 0.95 }}
                                     onClick={toggleRecording}
-                                    className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-500 shadow-xl ${isRecording
-                                        ? 'bg-red-500 animate-pulse'
-                                        : 'bg-blue-600 hover:bg-blue-700'
+                                    disabled={!newVoiceName.trim()}
+                                    className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-500 shadow-xl disabled:opacity-50 disabled:cursor-not-allowed ${isRecording
+                                            ? 'bg-red-500 animate-pulse'
+                                            : 'bg-blue-600 hover:bg-blue-700'
                                         }`}
                                 >
                                     {isRecording ? (
@@ -144,7 +176,7 @@ export function VoiceSettings() {
                         <p className="text-xs font-bold text-blue-600/60 uppercase tracking-widest mb-1">Active Voice</p>
                         <div className="relative">
                             <select
-                                value={selectedVoice}
+                                value={selectedVoiceId}
                                 onChange={(e) => handleVoiceSelect(e.target.value)}
                                 className="w-full bg-transparent text-lg font-bold text-gray-900 appearance-none focus:outline-none cursor-pointer pr-8"
                             >

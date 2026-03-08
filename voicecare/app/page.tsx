@@ -20,10 +20,13 @@ import {
 } from "react-icons/fa";
 import { toast } from "sonner";
 import { getDate } from "./actions/ai";
-import { createTask } from "./actions/tasks";
+import { createTask, getTasks } from "./actions/tasks";
 import { AudioWave } from "./components/AudioWave";
 import Link from "next/link";
 import { VoiceSettings } from "@/components/VoiceSettings";
+import { Calendar } from "@/components/ui/calendar";
+import { isSameDay, format } from "date-fns";
+import { FaHospital } from "react-icons/fa";
 
 const FeatureButton = ({
 	icon: Icon,
@@ -53,12 +56,12 @@ const FeatureButton = ({
 	</Tooltip>
 );
 
-const VoiceButton = ({ isConnected = false }: { isConnected?: boolean }) => {
+const VoiceButton = ({ isConnected = false, name = "Samantha" }: { isConnected?: boolean, name?: string }) => {
 	// Determine the current state for UI
 	const getStateMessage = useCallback(() => {
-		if (!isConnected) return "Click to talk with your Samantha";
-		return "Samantha is listening...";
-	}, [isConnected]);
+		if (!isConnected) return `Click to talk with ${name}`;
+		return `${name} is listening...`;
+	}, [isConnected, name]);
 
 	return (
 		<Tooltip>
@@ -116,50 +119,45 @@ const VoiceButton = ({ isConnected = false }: { isConnected?: boolean }) => {
 	);
 };
 
-const EmergencyIconButton = () => (
-	<motion.div
-		initial={{ opacity: 0, y: 20 }}
-		animate={{ opacity: 1, y: 0 }}
-		transition={{ delay: 0.8 }}
-		className="fixed bottom-8 right-8 z-50"
-	>
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<motion.button
-					whileHover={{ scale: 1.1 }}
-					whileTap={{ scale: 0.95 }}
-					className="relative flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-r from-red-600 to-red-500 rounded-full shadow-[0_8px_32px_rgba(239,68,68,0.3)] hover:shadow-[0_16px_48px_rgba(239,68,68,0.4)] transition-all duration-300"
-				>
-					{/* Pulsing Background */}
-					<div className="absolute inset-0 rounded-full bg-gradient-to-r from-red-600 to-red-500 animate-pulse opacity-50 blur-lg" />
-
-					{/* Icon */}
-					<FaPhoneAlt className="relative w-8 h-8 sm:w-10 sm:h-10 text-white" />
-				</motion.button>
-			</TooltipTrigger>
-			<TooltipContent>
-				<p>Emergency assistance (Always available)</p>
-			</TooltipContent>
-		</Tooltip>
-	</motion.div>
-);
 
 export default function LandingPage() {
 	const [isConnected, setIsConnected] = useState(false);
+	const [selectedVoiceId, setSelectedVoiceId] = useState<string>("");
+	const [selectedVoiceName, setSelectedVoiceName] = useState<string>("Samantha");
+	const [date, setDate] = useState<Date | undefined>(new Date());
+	const [tasks, setTasks] = useState<any[]>([]);
+	const [isLoadingTasks, setIsLoadingTasks] = useState(false);
+
 	const notifications = useNotifications(1);
+
+	const fetchTasks = useCallback(async () => {
+		if (!date) return;
+		setIsLoadingTasks(true);
+		try {
+			const data = await getTasks(1);
+			setTasks(data.filter((t: any) => isSameDay(new Date(t.event_time), date)));
+		} catch (error) {
+			console.error("Failed to fetch tasks:", error);
+		} finally {
+			setIsLoadingTasks(false);
+		}
+	}, [date]);
+
+	useEffect(() => {
+		fetchTasks();
+	}, [fetchTasks]);
 
 	const conversation = useConversation({
 		onConnect: () => {
 			setIsConnected(true);
-			toast.success("Connected to Samantha");
+			toast.success(`Connected to ${selectedVoiceName}`);
 			posthog.capture("conversation_started", {
-				hasNotifications: (notifications || []).length > 0,
-				notificationCount: (notifications || []).length,
+				voiceId: selectedVoiceId,
+				voiceName: selectedVoiceName
 			});
 
 			if ((notifications || []).length > 0) {
 				toast.success(`You have ${(notifications || []).length} unread notifications`);
-				// Samantha can proactively inform about notifications
 				conversation.startSession({
 					text: `You have ${(notifications || []).length} unread notifications. Would you like me to read them to you?`,
 				});
@@ -167,60 +165,41 @@ export default function LandingPage() {
 		},
 		onDisconnect: () => {
 			setIsConnected(false);
-			toast.info("Disconnected from Samantha");
+			toast.info(`Disconnected from ${selectedVoiceName}`);
 			posthog.capture("conversation_ended");
 		},
 		onError: (error: Error | any) => {
 			console.error("ElevenLabs connection error details:", error);
 			setIsConnected(false);
-			toast.error(`Error: ${error?.message || "Connection failed. Please check your ElevenLabs API Key"}`);
-			posthog.capture("conversation_error", {
-				error: error?.message || "Unknown error",
-				full_error: JSON.stringify(error)
-			});
+			toast.error(`Error: ${error?.message || "Connection failed."}`);
 		},
 		onMessage: (message: { text: string } | any) => {
-			console.log("Message from agent:", message);
 			if (message?.text) {
 				toast.info(message.text);
-				posthog.capture("agent_message_received", {
-					messageLength: message.text.length,
-				});
-			} else {
-				posthog.capture("agent_event_received", {
-					payload: JSON.stringify(message)
-				});
 			}
 		},
 	});
-
-	// Initialize connection on mount
-	useEffect(() => {
-		startConversation();
-		// Cleanup on unmount
-		return () => {
-			stopConversation();
-		};
-	}, []);
 
 	const startConversation = useCallback(async () => {
 		try {
 			await conversation.startSession({
 				agentId: process.env.NEXT_PUBLIC_ELEVENLAB_AGENT_ID,
+				overrides: {
+					agent: {
+						prompt: {
+							prompt: `You are ${selectedVoiceName}, a friendly and helpful AI companion for the elderly. Your goal is to provide companionship and help manage reminders or appointments. Be patient, warm, and use clear, simple language. If the user asks you to set a reminder or appointment, use the tools provided.`,
+						},
+						firstMessage: `Hello! I'm ${selectedVoiceName}. How can I help you today?`,
+					},
+					tts: {
+						voiceId: selectedVoiceId || process.env.NEXT_PUBLIC_ELEVENLAB_VOICE_ID,
+					}
+				},
 				clientTools: {
 					set_reminders: async (props: any) => {
-						console.log("Props:", props);
 						const { task, datetime } = props;
-						// Simulate setting a reminder
-						console.log("Setting reminder:", { task, datetime });
 						const absoluteDatetime = await getDate(datetime);
 						const eventDate = new Date(absoluteDatetime);
-						console.log(
-							"Parsed date:",
-							eventDate,
-							"Is valid:",
-							!isNaN(eventDate.getTime())
-						);
 						const result = await createTask({
 							event_time: eventDate,
 							notification_time: eventDate,
@@ -229,37 +208,17 @@ export default function LandingPage() {
 							user_id: 1,
 						});
 
-						posthog.capture("reminder_set", {
-							task,
-							datetime: eventDate.toISOString(),
-							success: result.success,
-						});
-
 						if (result.success) {
+							fetchTasks();
 							toast.success(`Reminder set: ${task} for ${datetime}`);
-							return {
-								success: true,
-								message: `Successfully set reminder for ${task} at ${datetime}`,
-							};
-						} else {
-							toast.error("Failed to set reminder");
-							return {
-								success: false,
-								message: "Failed to set reminder",
-							};
+							return { success: true, message: `Successfully set reminder for ${task} at ${datetime}` };
 						}
+						return { success: false, message: "Failed to set reminder" };
 					},
-					schedule_appointments: async ({
-						title,
-						datetime,
-					}: {
-						title: string;
-						datetime: string;
-					}) => {
+					schedule_appointments: async ({ title, datetime }: { title: string; datetime: string }) => {
 						const absoluteDatetime = await getDate(datetime);
 						const eventDate = new Date(absoluteDatetime);
 
-						// Simulate scheduling an appointment
 						const result = await createTask({
 							event_time: eventDate,
 							notification_time: eventDate,
@@ -268,59 +227,23 @@ export default function LandingPage() {
 							user_id: 1,
 						});
 
-						posthog.capture("appointment_scheduled", {
-							title,
-							datetime: eventDate.toISOString(),
-							success: result.success,
-						});
-
-						// Here you would typically:
-						// 1. Parse the datetime string
-						// 2. Check for conflicts
-						// 3. Store in calendar system
-						// 4. Set up notifications
 						if (result.success) {
+							fetchTasks();
 							toast.success(`Appointment scheduled: ${title} for ${datetime}`);
-							return {
-								success: true,
-								message: `I've scheduled your ${title} for ${datetime}`,
-							};
-						} else {
-							toast.error("Failed to schedule appointment");
-							return {
-								success: false,
-								message: "Failed to schedule appointment",
-							};
+							return { success: true, message: `I've scheduled your ${title} for ${datetime}` };
 						}
+						return { success: false, message: "Failed to schedule appointment" };
 					},
-					emergency_help: async ({
-						message = "Emergency help requested",
-					}: {
-						message?: string;
-					}) => {
-						// Simulate emergency response
-						console.log("Emergency alert triggered:", message);
-						toast.error("Emergency Alert: " + message, {
-							duration: 10000, // Show for longer
-						});
-
-						// Here you would typically:
-						// 1. Send SMS to emergency contacts
-						// 2. Trigger emergency protocols
-						// 3. Log the emergency
-						return {
-							success: true,
-							message:
-								"Emergency services have been notified. Help is on the way.",
-						};
+					emergency_help: async ({ message = "Emergency help requested" }) => {
+						toast.error("Emergency Alert: " + message, { duration: 10000 });
+						return { success: true, message: "Emergency services have been notified." };
 					},
 				},
 			});
 		} catch (error) {
-			setIsConnected(false);
 			toast.error("Failed to start conversation: " + (error as Error).message);
 		}
-	}, [conversation]);
+	}, [conversation, selectedVoiceId, selectedVoiceName, fetchTasks]);
 
 	const stopConversation = useCallback(async () => {
 		try {
@@ -331,10 +254,27 @@ export default function LandingPage() {
 		}
 	}, [conversation]);
 
+	const handleVoiceChange = (id: string, name: string) => {
+		setSelectedVoiceId(id);
+		setSelectedVoiceName(name);
+		if (isConnected) {
+			stopConversation();
+			toast.info("Restart the conversation to apply the new voice.");
+		}
+	};
+
+	const toggleMic = () => {
+		if (isConnected) {
+			stopConversation();
+		} else {
+			startConversation();
+		}
+	};
+
 	return (
 		<TooltipProvider>
-			<div className="relative h-screen bg-[#F8FAFC] flex flex-col justify-between overflow-hidden">
-				{/* Subtle, comfortable background pattern */}
+			<div className="relative min-h-screen bg-[#F8FAFC] flex flex-col overflow-x-hidden">
+				{/* Background Pattern */}
 				<div className="absolute inset-0 overflow-hidden pointer-events-none">
 					<div
 						className="absolute inset-0 opacity-30"
@@ -343,68 +283,92 @@ export default function LandingPage() {
 							backgroundSize: "32px 32px",
 						}}
 					/>
-					<div className="absolute inset-0 bg-gradient-to-b from-white/50 via-transparent to-white/50" />
 				</div>
 
-				{/* Main content with improved spacing */}
-				<div className="relative flex flex-col items-center w-full max-w-7xl mx-auto px-6 py-12">
-					{/* Welcome text with better contrast */}
+				{/* Main Content */}
+				<main className="relative flex flex-col items-center w-full max-w-7xl mx-auto px-6 py-12 pb-24">
 					<motion.div
 						initial={{ opacity: 0, y: -20 }}
 						animate={{ opacity: 1, y: 0 }}
-						className="text-center mb-24"
+						className="text-center mb-16"
 					>
-						<h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6 tracking-tight flex items-baseline gap-2">
+						<h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6 tracking-tight">
 							<span className="text-blue-700">VoiceCare</span>{" "}
-							<span className="font-extralighta text-gray-600 text-3xl md:text-4xl">
-								AI Companion for Elderly
+							<span className="font-extralight text-gray-600">
+								AI Companion
 							</span>
 						</h1>
-						<p className="text-lg md:text-xl text-gray-800 mb-2">
-							Just speak naturally to control the app
-						</p>
-						<p className="text-md text-gray-600">
-							Try saying: &quot;Set a reminder&quot; or &quot;Call for
-							help&quot;
+						<p className="text-lg text-gray-800 mb-2">
+							Click the microphone to start talking with <span className="font-bold text-blue-700">{selectedVoiceName}</span>
 						</p>
 					</motion.div>
 
-					{/* Rest of the content */}
-					<div className="relative flex flex-col items-center w-full">
-						{/* Center voice button */}
-						<div className="mb-12">
-							<VoiceButton isConnected={isConnected} />
+					<div className="grid grid-cols-1 lg:grid-cols-12 gap-12 w-full max-w-6xl">
+						{/* Left Side: Voice Control */}
+						<div className="lg:col-span-5 flex flex-col items-center justify-center space-y-12">
+							<div onClick={toggleMic} className="cursor-pointer">
+								<VoiceButton isConnected={isConnected} name={selectedVoiceName} />
+							</div>
+
+							<div className="w-full">
+								<VoiceSettings onVoiceChange={handleVoiceChange} />
+							</div>
 						</div>
 
-						{/* Voice Cloning and Selection */}
-						<VoiceSettings />
+						{/* Right Side: Calendar & Tasks */}
+						<div className="lg:col-span-7 space-y-8">
+							<div className="bg-white p-6 rounded-[2.5rem] shadow-[4px_4px_20px_rgba(0,0,0,0.05)]">
+								<div className="flex items-center gap-3 mb-6 px-2">
+									<FaCalendarAlt className="text-blue-700 w-6 h-6" />
+									<h2 className="text-2xl font-bold text-gray-800">Your Schedule</h2>
+								</div>
 
-						{/* Feature buttons section */}
+								<div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+									<div className="flex justify-center">
+										<Calendar
+											mode="single"
+											selected={date}
+											onSelect={setDate}
+											className="rounded-2xl border-none shadow-sm"
+										/>
+									</div>
 
-						<div className="grid grid-cols-1 sm:grid-cols-3 gap-8 w-full max-w-4xl mx-auto mt-16">
-							<FeatureButton
-								icon={FaBell}
-								label="Set Reminders"
-								tooltip="Set medication and appointment reminders"
-							/>
-							<Link href="/calendar" className="w-full">
-								<FeatureButton
-									icon={FaCalendarAlt}
-									label="View Calendar"
-									tooltip="Schedule and manage appointments"
-								/>
-							</Link>
-							<FeatureButton
-								icon={FaComments}
-								label="Companionship"
-								tooltip="24/7 companionship and support"
-							/>
+									<div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+										<p className="text-sm font-bold text-blue-600 uppercase tracking-widest px-1">
+											{date ? format(date, "MMMM do") : "Today"}
+										</p>
+
+										{isLoadingTasks ? (
+											<p className="text-gray-400 italic text-sm">Loading tasks...</p>
+										) : tasks.length > 0 ? (
+											tasks.map((task) => (
+												<div key={task.task_id} className="p-4 rounded-2xl bg-blue-50/50 border border-blue-100 flex items-center gap-4">
+													<div className={`p-2 rounded-xl ${task.type === 'appointment' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+														{task.type === 'appointment' ? <FaHospital className="w-4 h-4" /> : <FaBell className="w-4 h-4" />}
+													</div>
+													<div>
+														<p className="font-bold text-gray-900 text-sm">{task.title}</p>
+														<p className="text-xs text-gray-500">{format(new Date(task.event_time), "h:mm a")}</p>
+													</div>
+												</div>
+											))
+										) : (
+											<div className="py-8 text-center border-2 border-dashed border-gray-100 rounded-2xl">
+												<p className="text-gray-400 text-sm">No events scheduled</p>
+											</div>
+										)}
+									</div>
+								</div>
+							</div>
+
+							<div className="grid grid-cols-3 gap-6">
+								<FeatureButton icon={FaBell} label="Reminders" tooltip="Set medication reminders" />
+								<FeatureButton icon={FaCalendarAlt} label="Appointments" tooltip="Schedule doctor visits" />
+								<FeatureButton icon={FaComments} label="Chat" tooltip="Talk about your day" />
+							</div>
 						</div>
 					</div>
-				</div>
-
-				{/* Emergency button */}
-				<EmergencyIconButton />
+				</main>
 			</div>
 		</TooltipProvider>
 	);
